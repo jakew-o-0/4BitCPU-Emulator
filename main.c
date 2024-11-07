@@ -1,38 +1,19 @@
-#define u_char unsigned char
-
-#define OPCODE_NOP	0x00
-#define OPCODE_LDI	0x01
-#define OPCODE_LDD	0x02
-#define OPCODE_ST	0x03
-#define OPCODE_ADD	0x04
-#define OPCODE_SUB	0x05
-#define OPCODE_CMP	0x06
-#define OPCODE_JMP	0x07
-#define OPCODE_JZ	0x08
-#define OPCODE_JN	0x09
-#define OPCODE_JC	0x0A
-#define OPCODE_JSR	0x0B
-#define OPCODE_RET	0x0C
-#define OPCODE_IN	0x0D
-#define OPCODE_OUT	0x0E
-#define OPCODE_RTI	0x0F
+#include "main.h"
 
 u_char Memory[255];
-u_char Accumulator, Status, ProgramCounter, StackPointer;
+u_char Accumulator, Status, ProgramCounter, StackPointer, isrSig;
 u_char fetch();
-
-void execute(u_char opcode);
-void setStatus_clearC();
-void setStatus();
-u_char getAddr();
 
 int main() {
     Accumulator = 0;
     Status = 0;
     ProgramCounter = 0;
     StackPointer = 0xfb;
+    isrSig = 0;
 
     while (ProgramCounter < 255) {
+	if (isrSig)
+	    ISR();
 	execute(fetch());
     }
 }
@@ -66,8 +47,41 @@ void execute(u_char opcode) {
 	setStatus();
 	break;
     case OPCODE_CMP:
-	Accumulator = Accumulator == Memory[getAddr()]? 1:0;
+	u_char tmp = Accumulator;
+	Accumulator -= Memory[getAddr()];
 	setStatus();
+	Accumulator = tmp;
+	break;
+    case OPCODE_JMP:
+	ProgramCounter = getAddr();
+	break;
+    case OPCODE_JZ:
+	if (Status & 0x08)
+	    ProgramCounter = getAddr();
+	break;
+    case OPCODE_JN:
+	if (Status & 0x04)
+	    ProgramCounter = getAddr();
+	break;
+    case OPCODE_JC:
+	if (Status & 0x02)
+	    ProgramCounter = getAddr();
+	break;
+    case OPCODE_JSR:
+	pushStack(ProgramCounter);
+	ProgramCounter = getAddr();
+	break;
+    case OPCODE_RET:
+	ProgramCounter = popStack();
+	break;
+    case OPCODE_IN:
+	break;
+    case OPCODE_OUT:
+	break;
+    case OPCODE_RTI:
+	Accumulator = popStack();
+	Status = popStack();
+	ProgramCounter = (popStack()<<4) | popStack();
 	break;
     }
 }
@@ -87,4 +101,22 @@ void setStatus() {
 
 u_char getAddr() {
     return (fetch()<<4) | fetch();
+}
+
+void pushStack(u_char data) {
+    Memory[StackPointer] = data;
+    StackPointer++;
+}
+
+u_char popStack() {
+    StackPointer--;
+    return Memory[StackPointer];
+}
+
+void ISR() {
+    pushStack(ProgramCounter & 0x0f);
+    pushStack((ProgramCounter & 0xf0) >> 4);
+    pushStack(Status);
+    pushStack(Accumulator);
+    ProgramCounter = 0xfc;
 }
